@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thermal Intelligence</title>
+<style>
+:root{--bg:#0b1120;--panel:#111827;--panel2:#172033;--text:#eef2ff;--muted:#94a3b8;--border:#263246;--normal:#22c55e;--watch:#f59e0b;--warning:#f97316;--critical:#ef4444;--accent:#60a5fa}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#07101f,#111827);font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--text)}
+.app{max-width:1400px;margin:auto;padding:22px}.header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px}.title{font-size:28px;font-weight:800}.subtitle{color:var(--muted);margin-top:4px}.status{padding:10px 16px;border-radius:999px;font-weight:800;letter-spacing:.08em;background:#19351f;color:var(--normal)}
+.status.WATCH{background:#3a2d0b;color:var(--watch)}.status.WARNING{background:#3b2110;color:var(--warning)}.status.CRITICAL,.status.EMERGENCY{background:#43131a;color:var(--critical);animation:pulse 1.1s infinite}
+.big.alert-WATCH{color:var(--watch)}.big.alert-WARNING{color:var(--warning)}.big.alert-CRITICAL,.big.alert-EMERGENCY{color:var(--critical);animation:pulse 1.1s infinite}
+@keyframes pulse{50%{opacity:.55}}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}.card{background:rgba(17,24,39,.92);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.component{grid-column:span 4}.system{grid-column:span 3}.wide{grid-column:span 6}.full{grid-column:1/-1}.metric-title{font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}.temp{font-size:40px;font-weight:800;margin:8px 0}.row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(148,163,184,.1)}.row:last-child{border-bottom:0}.label{color:var(--muted)}
+.big{font-size:24px;font-weight:750}.cause{font-size:18px;line-height:1.45}.recommend{color:#bfdbfe}.danger{color:#fecaca}.small{font-size:13px;color:var(--muted)}
+.chart-legend{display:flex;flex-wrap:wrap;gap:14px;margin:10px 0 12px;color:var(--muted);font-size:12px;line-height:1.4}.chart-legend span{display:inline-flex;align-items:center;gap:7px}.chart-legend i{display:inline-block;width:18px;height:4px;border-radius:4px;flex:0 0 auto}
+canvas{width:100%;height:250px;background:#0b1324;border:1px solid var(--border);border-radius:12px}.prediction{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.pred{background:var(--panel2);padding:14px;border-radius:12px}.pred strong{font-size:23px}.table{width:100%;border-collapse:collapse}.table th,.table td{text-align:left;padding:10px;border-bottom:1px solid var(--border)}.badge{display:inline-block;padding:5px 9px;border-radius:999px;background:#1e293b;font-size:12px}
+@media(max-width:900px){.component,.system,.wide{grid-column:1/-1}.prediction{grid-template-columns:1fr}.header{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div><div class="title">Thermal Intelligence</div><div class="subtitle">Live thermal monitoring • numerical prediction • cause analysis</div></div>
+    <div id="status" class="status">CONNECTING</div>
+  </div>
+
+  <div class="grid">
+    <section class="card component">
+      <div class="metric-title">CPU</div>
+      <div class="temp" id="cpuTemp">--</div>
+      <div class="row"><span class="label">Load</span><span id="cpuLoad">--</span></div>
+      <div class="row"><span class="label">Power</span><span id="cpuPower">--</span></div>
+      <div class="row"><span class="label">Heating rate</span><span id="cpuRate">--</span></div>
+    </section>
+
+    <section class="card component">
+      <div class="metric-title">GPU</div>
+      <div class="temp" id="gpuTemp">--</div>
+      <div class="row"><span class="label">Hotspot</span><span id="gpuHotspot">--</span></div>
+      <div class="row"><span class="label">Load</span><span id="gpuLoad">--</span></div>
+      <div class="row"><span class="label">Power</span><span id="gpuPower">--</span></div>
+      <div class="row"><span class="label">Heating rate</span><span id="gpuRate">--</span></div>
+    </section>
+
+    <section class="card component">
+      <div class="metric-title">SSD</div>
+      <div class="temp" id="ssdTemp">--</div>
+      <div class="row"><span class="label">Activity</span><span id="ssdActivity">--</span></div>
+      <div class="row"><span class="label">Heating rate</span><span id="ssdRate">--</span></div>
+    </section>
+
+    <section class="card system">
+      <div class="metric-title">Memory</div>
+      <div class="big" id="ramLoad">--</div>
+      <div class="small" id="ramUsed">--</div>
+    </section>
+    <section class="card system">
+      <div class="metric-title">Hottest</div>
+      <div class="big" id="hottest">--</div>
+      <div class="small" id="maxTemp">--</div>
+    </section>
+    <section class="card system">
+      <div class="metric-title">Anomaly</div>
+      <div class="big" id="anomaly">--</div>
+    </section>
+    <section class="card system">
+      <div class="metric-title">Top process</div>
+      <div class="big" id="topProcess">--</div>
+    </section>
+
+    <section class="card full">
+      <div class="metric-title">Why is the system heating?</div>
+      <div class="cause" id="cause">Waiting for analysis...</div>
+      <div class="small" id="causeComponent">--</div>
+      <div class="recommend" id="recommendation">--</div>
+    </section>
+
+    <section class="card wide">
+      <div class="metric-title">Temperature — last 60 seconds</div>
+      <div class="chart-legend" aria-label="Temperature chart legend">
+        <span><i style="background:#60a5fa"></i>CPU temperature</span>
+        <span><i style="background:#a78bfa"></i>GPU temperature</span>
+        <span><i style="background:#34d399"></i>SSD temperature</span>
+      </div>
+      <canvas id="tempChart" width="900" height="250" aria-label="Temperature chart for CPU, GPU and SSD"></canvas>
+    </section>
+    <section class="card wide">
+      <div class="metric-title">Workload — last 60 seconds</div>
+      <div class="chart-legend" aria-label="Workload chart legend">
+        <span><i style="background:#60a5fa"></i>CPU load</span>
+        <span><i style="background:#a78bfa"></i>GPU load</span>
+        <span><i style="background:#f59e0b"></i>RAM load</span>
+      </div>
+      <canvas id="loadChart" width="900" height="250" aria-label="Workload chart for CPU, GPU and RAM"></canvas>
+    </section>
+
+    <section class="card full">
+      <div class="metric-title">Predicted temperature</div>
+      <div class="prediction">
+        <div class="pred"><div>CPU · 5 min</div><strong id="cpu5">--</strong></div>
+        <div class="pred"><div>CPU · 10 min</div><strong id="cpu10">--</strong></div>
+        <div class="pred"><div>CPU · 30 min</div><strong id="cpu30">--</strong></div>
+        <div class="pred"><div>GPU · 5 min</div><strong id="gpu5">--</strong></div>
+        <div class="pred"><div>GPU · 10 min</div><strong id="gpu10">--</strong></div>
+        <div class="pred"><div>GPU · 30 min</div><strong id="gpu30">--</strong></div>
+        <div class="pred"><div>SSD · 5 min</div><strong id="ssd5">--</strong></div>
+        <div class="pred"><div>SSD · 10 min</div><strong id="ssd10">--</strong></div>
+        <div class="pred"><div>SSD · 30 min</div><strong id="ssd30">--</strong></div>
+      </div>
+    </section>
+
+    <section class="card full">
+      <div class="metric-title">Model confidence</div>
+      <div class="prediction">
+        <div class="pred"><div>CPU model</div><strong id="confCpu">--</strong></div>
+        <div class="pred"><div>GPU model</div><strong id="confGpu">--</strong></div>
+        <div class="pred"><div>SSD model</div><strong id="confSsd">--</strong></div>
+      </div>
+    </section>
+
+    <section class="card wide">
+      <div class="metric-title">Time to critical threshold</div>
+      <table class="table">
+        <thead><tr><th>Component</th><th>Bisection</th><th>Newton-Raphson</th></tr></thead>
+        <tbody>
+          <tr><td>CPU</td><td id="cpuBis">--</td><td id="cpuNewt">--</td></tr>
+          <tr><td>GPU</td><td id="gpuBis">--</td><td id="gpuNewt">--</td></tr>
+          <tr><td>SSD</td><td id="ssdBis">--</td><td id="ssdNewt">--</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card wide">
+      <div class="metric-title">Advanced numerical analysis</div>
+      <div class="row"><span class="label">PCA dominant factor</span><span id="pcaFactor">--</span></div>
+      <div class="row"><span class="label">PCA variance PC1</span><span id="pcaPC1">--</span></div>
+      <div class="row"><span class="label">PCA variance PC2</span><span id="pcaPC2">--</span></div>
+      <div class="row"><span class="label">Jacobi iterations</span><span id="jacobi">--</span></div>
+      <div class="row"><span class="label">Gauss-Seidel iterations</span><span id="gs">--</span></div>
+      <div class="row"><span class="label">Thermal stability</span><span id="stability">--</span></div>
+      <div class="row"><span class="label">Curve-fit RMSE CPU</span><span id="rmseCpu">--</span></div>
+      <div class="row"><span class="label">Curve-fit RMSE GPU</span><span id="rmseGpu">--</span></div>
+      <div class="row"><span class="label">Curve-fit RMSE SSD</span><span id="rmseSsd">--</span></div>
+    </section>
+
+    <section class="card full">
+      <div class="metric-title">Safety</div>
+      <div class="cause" id="safety">--</div>
+      <div class="small">Automatic process termination/shutdown is disabled in this prototype. Actions require deliberate user control.</div>
+    </section>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = (v, suffix="") => (v === null || v === undefined || Number.isNaN(Number(v))) ? "--" : Number(v).toFixed(1) + suffix;
+const fmt3 = v => (v === null || v === undefined || Number.isNaN(Number(v))) ? "--" : Number(v).toFixed(3) + " °C/s";
+const mins = v => (v === null || v === undefined || Number.isNaN(Number(v))) ? "Not predicted" : (Number(v)/60).toFixed(1) + " min";
+
+function colorStatus(s){
+  const el=$("status"); el.textContent=s||"UNKNOWN"; el.className="status "+(s||"");
+}
+function colorAnomaly(s){
+  const el=$("anomaly");
+  el.className="big"+(s && s!=="NORMAL" ? " alert-"+s : "");
+}
+
+function drawChart(canvasId, labels, series, yUnit=""){
+  const c=$(canvasId), ctx=c.getContext("2d"), w=c.width, h=c.height;
+  ctx.clearRect(0,0,w,h); ctx.fillStyle="#0b1324"; ctx.fillRect(0,0,w,h);
+  const all=series.flatMap(s=>s.values).filter(v=>Number.isFinite(v));
+  if(!all.length) return;
+  let min=Math.min(...all), max=Math.max(...all); if(min===max){min-=1;max+=1;}
+  const left=42,right=12,top=12,bottom=26;
+  ctx.strokeStyle="#263246";ctx.lineWidth=1;
+  for(let i=0;i<5;i++){const y=top+i*(h-top-bottom)/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();}
+  ctx.font="12px Segoe UI";ctx.fillStyle="#94a3b8";ctx.fillText(max.toFixed(0)+yUnit,4,top+4);ctx.fillText(min.toFixed(0)+yUnit,4,h-bottom);
+  series.forEach(s=>{
+    if(!s.values.length)return;
+    ctx.strokeStyle=s.stroke;ctx.lineWidth=2;ctx.beginPath();
+    s.values.forEach((v,i)=>{
+      if(!Number.isFinite(v))return;
+      const x=left+i*(w-left-right)/Math.max(1,s.values.length-1);
+      const y=h-bottom-(v-min)*(h-top-bottom)/(max-min);
+      if(i===0 || !Number.isFinite(s.values[i-1]))ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    });ctx.stroke();
+  });
+  ctx.fillStyle="#94a3b8";ctx.fillText(labels?.[0]||"",left,h-7);ctx.fillText(labels?.[labels.length-1]||"",w-70,h-7);
+}
+
+async function update(){
+  try{
+    const res=await fetch("/dashboard?t="+Date.now(),{cache:"no-store"});
+    const d=await res.json(); const s=d.sensor||{}, a=d.analysis||{};
+    colorStatus(a.status); colorAnomaly(a.status);
+    $("cpuTemp").textContent=fmt(s.cpu_temp," °C");$("cpuLoad").textContent=fmt(s.cpu_load," %");$("cpuPower").textContent=fmt(s.cpu_power," W");$("cpuRate").textContent=fmt3(a.cpuHeatingRate);
+    $("gpuTemp").textContent=fmt(s.gpu_temp," °C");$("gpuHotspot").textContent=fmt(s.gpu_hotspot," °C");$("gpuLoad").textContent=fmt(s.gpu_load," %");$("gpuPower").textContent=fmt(s.gpu_power," W");$("gpuRate").textContent=fmt3(a.gpuHeatingRate);
+    $("ssdTemp").textContent=fmt(s.ssd_temp," °C");$("ssdActivity").textContent=fmt(s.ssd_activity," %");$("ssdRate").textContent=fmt3(a.ssdHeatingRate);
+    $("ramLoad").textContent=fmt(s.ram_load," %");$("ramUsed").textContent=s.ram_used_gb==null?"--":Number(s.ram_used_gb).toFixed(2)+" GB used";
+    $("hottest").textContent=a.hottestComponent||"--";$("maxTemp").textContent=fmt(a.maxTemperature," °C");
+    $("anomaly").textContent=a.anomaly||"--";$("topProcess").textContent=a.topProcess||"None";
+    $("cause").textContent=a.cause||"Waiting for analysis...";$("causeComponent").textContent="Likely contributor: "+(a.causeComponent||"--");$("recommendation").textContent="Recommendation: "+(a.recommendation||"--");
+    $("cpu5").textContent=fmt(a.prediction?.cpu5," °C");$("cpu10").textContent=fmt(a.prediction?.cpu10," °C");$("cpu30").textContent=fmt(a.prediction?.cpu30," °C");
+    $("gpu5").textContent=fmt(a.prediction?.gpu5," °C");$("gpu10").textContent=fmt(a.prediction?.gpu10," °C");$("gpu30").textContent=fmt(a.prediction?.gpu30," °C");
+    $("ssd5").textContent=fmt(a.prediction?.ssd5," °C");$("ssd10").textContent=fmt(a.prediction?.ssd10," °C");$("ssd30").textContent=fmt(a.prediction?.ssd30," °C");
+    $("confCpu").textContent=fmt(a.modelConfidence?.cpu,"%");$("confGpu").textContent=fmt(a.modelConfidence?.gpu,"%");$("confSsd").textContent=fmt(a.modelConfidence?.ssd,"%");
+    $("cpuBis").textContent=mins(a.timeToCritical?.cpuBisection);$("cpuNewt").textContent=mins(a.timeToCritical?.cpuNewton);$("gpuBis").textContent=mins(a.timeToCritical?.gpuBisection);$("gpuNewt").textContent=mins(a.timeToCritical?.gpuNewton);$("ssdBis").textContent=mins(a.timeToCritical?.ssdBisection);$("ssdNewt").textContent=mins(a.timeToCritical?.ssdNewton);
+    $("pcaFactor").textContent=a.pca?.dominantFactor||"--";$("pcaPC1").textContent=a.pca?.explainedPC1==null?"--":Number(a.pca.explainedPC1).toFixed(1)+"%";$("pcaPC2").textContent=a.pca?.explainedPC2==null?"--":Number(a.pca.explainedPC2).toFixed(1)+"%";$("jacobi").textContent=a.coupling?.jacobiIterations??"--";$("gs").textContent=a.coupling?.gaussSeidelIterations??"--";$("stability").textContent=a.coupling?.stability||"--";$("rmseCpu").textContent=a.curveFit?.cpuRMSE==null?"--":Number(a.curveFit.cpuRMSE).toFixed(3)+" °C";$("rmseGpu").textContent=a.curveFit?.gpuRMSE==null?"--":Number(a.curveFit.gpuRMSE).toFixed(3)+" °C";$("rmseSsd").textContent=a.curveFit?.ssdRMSE==null?"--":Number(a.curveFit.ssdRMSE).toFixed(3)+" °C";$("safety").textContent=a.safety?.message||"--";
+    const h=a.history||{}; const labels=h.time||[];
+    drawChart("tempChart",labels,[{values:(h.cpuTemp||[]).map(v=>v==null?NaN:Number(v)),stroke:"#60a5fa"},{values:(h.gpuTemp||[]).map(v=>v==null?NaN:Number(v)),stroke:"#a78bfa"},{values:(h.ssdTemp||[]).map(v=>v==null?NaN:Number(v)),stroke:"#34d399"}],"°C");
+    drawChart("loadChart",labels,[{values:(h.cpuLoad||[]).map(v=>v==null?NaN:Number(v)),stroke:"#60a5fa"},{values:(h.gpuLoad||[]).map(v=>v==null?NaN:Number(v)),stroke:"#a78bfa"},{values:(h.ramLoad||[]).map(v=>v==null?NaN:Number(v)),stroke:"#f59e0b"}],"%");
+  }catch(e){ colorStatus("DISCONNECTED"); }
+}
+update();setInterval(update,1000);
+</script>
+</body>
+</html>
