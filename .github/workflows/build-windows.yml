@@ -1,0 +1,36 @@
+name: Build ThermoTrack Windows installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'CBP/ThermoTrack_Single_Application/src/**'
+      - 'CBP/ThermoTrack_Single_Application/analysis/**'
+      - 'CBP/ThermoTrack_Single_Application/app-dashboard/index.html'
+      - 'CBP/ThermoTrack_Single_Application/build/**'
+      - 'CBP/ThermoTrack_Single_Application/installer/**'
+      - 'CBP/ThermoTrack_Single_Application/requirements-build.txt'
+      - 'CBP/ThermoTrack_Single_Application/tests/**'
+      - '.github/workflows/build-windows.yml'
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build and test
+        shell: powershell
+        run: ./CBP/ThermoTrack_Single_Application/build/build_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ThermoTrack-Windows-Installer-x64
+          path: CBP/ThermoTrack_Single_Application/dist/ThermoTrack-Setup-x64.exe
+          if-no-files-found: error

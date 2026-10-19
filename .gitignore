@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+# .NET/build outputs
+bin/
+obj/
+**/publish/
+**/dist/
+**/build/worker-build/
+**/build/worker-dist/
+# Installer/build artifacts
+*.exe
+*.msi
+# IDE
+.vscode/
+.idea/
+# Local data/secrets
+.env
+*.log
