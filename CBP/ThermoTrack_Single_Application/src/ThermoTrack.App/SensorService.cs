@@ -18,11 +18,36 @@ internal sealed class SensorService : IDisposable
     };
     private ulong _idle, _kernel, _user;
     private readonly Dictionary<int, (TimeSpan Cpu, DateTime Seen)> _processCpu = new();
+    private string? _initializationError;
 
-    public SensorService() => _computer.Open();
+    public SensorService()
+    {
+        try { _computer.Open(); }
+        catch (Exception ex)
+        {
+            // Keep the UI available even when this PC blocks or lacks hardware sensor access.
+            _initializationError = ex.Message;
+        }
+    }
 
     public Dictionary<string, object?> Sample()
     {
+        if (_initializationError is not null)
+        {
+            var memoryFallback = GlobalMemoryStatus();
+            return new Dictionary<string, object?>
+            {
+                ["timestamp"] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss.fff"),
+                ["cpu_temp"] = null, ["cpu_load"] = null, ["cpu_power"] = null,
+                ["gpu_temp"] = null, ["gpu_hotspot"] = null, ["gpu_load"] = null, ["gpu_power"] = null,
+                ["ssd_temp"] = null, ["ssd_activity"] = null,
+                ["ram_load"] = memoryFallback.LoadPercent, ["ram_used_gb"] = memoryFallback.UsedGb,
+                ["top_processes"] = TopProcesses(), ["sensor_provider"] = "LibreHardwareMonitorLib",
+                ["sensor_error"] = _initializationError,
+                ["sensor_note"] = "Hardware sensors could not be initialized. Temperature readings are unavailable; no values are fabricated."
+            };
+        }
+
         foreach (var hardware in _computer.Hardware) UpdateRecursive(hardware);
         var all = new List<(IHardware Hardware, ISensor Sensor)>();
         foreach (var hardware in _computer.Hardware) Flatten(hardware, all);

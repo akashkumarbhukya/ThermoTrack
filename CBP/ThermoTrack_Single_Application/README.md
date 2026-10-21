@@ -34,3 +34,8 @@ LibreHardwareMonitor is MPL-2.0; WebView2 and Python packages have their own ter
 
 ## Package scope
 This ZIP contains only the standalone desktop-application source/build files. The separate original Python–MATLAB–HTML educational project is intentionally excluded and should remain in its own folder in the parent CBP repository.
+
+
+## Non-administrator installation
+
+The Windows edition is configured to run with the current user's permissions. The installer targets `%LOCALAPPDATA%\Programs\ThermoTrack`; WebView2 profile data is stored under `%LOCALAPPDATA%\ThermoTrack\WebView2`. Some hardware sensors may still be unavailable to standard users depending on Windows, firmware, drivers, and device permissions. In that case the app should remain open and report unavailable readings rather than inventing temperatures.

@@ -37,7 +37,14 @@ internal sealed class MainForm : Form
             _sensors = new SensorService();
             _analysis = new AnalysisClient(worker);
             _api = new LocalApiServer(dashboard, Snapshot); _api.Start();
-            await _web.EnsureCoreWebView2Async();
+            // WebView2 must write its profile to a user-writable location, never Program Files.
+            var webViewData = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ThermoTrack", "WebView2");
+            Directory.CreateDirectory(webViewData);
+            var webViewEnvironment = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(
+                userDataFolder: webViewData);
+            await _web.EnsureCoreWebView2Async(webViewEnvironment);
             _web.CoreWebView2.Settings.AreDevToolsEnabled = false;
             _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             _web.Source = new Uri(_api.BaseUrl);
