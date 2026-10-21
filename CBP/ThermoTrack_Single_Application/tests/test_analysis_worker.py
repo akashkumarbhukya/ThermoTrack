@@ -41,6 +41,10 @@ def test_missing_sensor_values_stay_missing_and_status_is_not_normal():
     assert out["status"] == "SENSOR_UNAVAILABLE"
     assert all(v is None for v in out["prediction"].values())
     assert all(v is None for v in out["modelConfidence"].values())
+    # These fields are the contract checked by the frozen-worker CI smoke test.
+    assert out["status"] == "SENSOR_UNAVAILABLE"
+    assert out["prediction"]["cpu5"] is None
+    assert out["maxTemperature"] is None
 
 
 def test_zero_temperature_sensor_sentinel_is_not_reported_as_valid():

@@ -63,19 +63,6 @@ python -m pytest tests -q
 
 Unit tests do not replace sensor tests on physical hardware. Sensor names and available metrics vary by system.
 
-## Verify the installed Windows application and physical sensors
-
-After a successful Windows build and installation on the target PC, launch ThermoTrack as the normal user and run this from PowerShell (from the extracted source folder):
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\CBP\ThermoTrack_Single_Application\tests\verify_installed_hardware.ps1
-```
-
-The script connects to the running app's loopback-only `/data` endpoint, samples CPU/GPU/hotspot/SSD temperature fields 10 times, and reports which fields produced valid readings. It does not require or enable administrator rights, does not save raw samples, and does not replace missing readings with zeros. Some sensors may be unsupported or unavailable under the current hardware/driver/permission combination. Run the original edition on the same PC at the same time and compare its live values with the standalone readings. A `PASS` for all three primary sensors is useful evidence for that machine, not a guarantee for every PC.
-
-The Windows installer build itself must be confirmed by a successful GitHub Actions run or by executing the documented Windows build script on a Windows 10/11 x64 build machine. This Linux verification environment cannot perform the Windows installer build or access physical PC sensors.
-
 ## Licensing
 
 See `LICENSE` and `THIRD_PARTY_NOTICES.md`. Third-party components retain their own license terms and required notices.

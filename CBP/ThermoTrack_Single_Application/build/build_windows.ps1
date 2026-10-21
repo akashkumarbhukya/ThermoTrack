@@ -61,10 +61,32 @@ try {
             $workerError = $workerProcess.StandardError.ReadToEnd()
             throw "Bundled analysis worker smoke test failed. Exit code: $($workerProcess.ExitCode). $workerError"
         }
-        $workerJson = $workerResponse | ConvertFrom-Json
-        if ($workerJson.status -ne 'SENSOR_UNAVAILABLE' -or $null -ne $workerJson.maxTemperature -or $null -ne $workerJson.prediction.cpu5) {
-            throw 'Bundled analysis worker failed the no-fabricated-values smoke test.'
+        try {
+            $workerJson = $workerResponse | ConvertFrom-Json
         }
+        catch {
+            throw "Bundled analysis worker returned invalid JSON. Raw response: $workerResponse. Parse error: $($_.Exception.Message)"
+        }
+
+        # Validate both the semantic result and that the important fields exist.
+        # Include returned values in the failure message so future CI failures are diagnosable.
+        $statusValue = [string]$workerJson.status
+        $maxTemperatureProperty = $workerJson.PSObject.Properties['maxTemperature']
+        $predictionProperty = $workerJson.PSObject.Properties['prediction']
+        $predictionCpu5Property = $null
+        if ($null -ne $predictionProperty -and $null -ne $predictionProperty.Value) {
+            $predictionCpu5Property = $predictionProperty.Value.PSObject.Properties['cpu5']
+        }
+
+        $maxTemperatureIsNull = ($null -ne $maxTemperatureProperty -and $null -eq $maxTemperatureProperty.Value)
+        $predictionCpu5IsNull = ($null -ne $predictionCpu5Property -and $null -eq $predictionCpu5Property.Value)
+        $maxTemperatureText = if ($null -eq $maxTemperatureProperty) { '<missing>' } else { ConvertTo-Json -InputObject $maxTemperatureProperty.Value -Compress }
+        $predictionCpu5Text = if ($null -eq $predictionCpu5Property) { '<missing>' } else { ConvertTo-Json -InputObject $predictionCpu5Property.Value -Compress }
+
+        if ($statusValue -ne 'SENSOR_UNAVAILABLE' -or -not $maxTemperatureIsNull -or -not $predictionCpu5IsNull) {
+            throw "Bundled analysis worker failed the no-fabricated-values smoke test. status='$statusValue'; maxTemperature=$maxTemperatureText; prediction.cpu5=$predictionCpu5Text; raw response=$workerResponse"
+        }
+        Write-Host 'Bundled analysis worker no-fabricated-values smoke test passed.' -ForegroundColor Green
     }
     finally {
         $workerProcess.Dispose()

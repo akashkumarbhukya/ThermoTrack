@@ -33,10 +33,6 @@ The original edition's source was used as the behavioral reference; it was not r
 - Dashboard JavaScript syntax check with Node.js: passed.
 - Analysis worker JSON-lines smoke test with unavailable CPU/GPU/SSD temperatures: passed; it returned `SENSOR_UNAVAILABLE`, `maxTemperature: null`, null CPU prediction, and null CPU confidence.
 
-## Windows physical sensor verification helper
-
-Added `CBP/ThermoTrack_Single_Application/tests/verify_installed_hardware.ps1`. After the installer is built and installed on Windows, it locates or starts ThermoTrack, discovers the app-owned loopback listener, samples the `/data` API for 10 rounds, checks for valid CPU/GPU/GPU-hotspot/SSD readings, prints the other live metrics, and surfaces recent relevant diagnostic-log lines. It does not persist sampled telemetry. The script has not been executed in this Linux environment because PowerShell and Windows hardware are not available here.
-
 ## Not verified here
 
 This environment did not have the .NET SDK, PowerShell, or Inno Setup available, so a Windows C# publish and installer compilation were **not run here**. This environment also cannot access the user's physical CPU/GPU/SSD sensors. The source package therefore does not claim that a Windows installer has been compiled or that the user's sensor behavior is fixed on hardware.
