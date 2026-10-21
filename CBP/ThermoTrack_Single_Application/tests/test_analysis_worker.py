@@ -178,3 +178,29 @@ def test_forecast_alert_bands_match_original_matlab_policy():
     assert mod.forecast_alert_levels({"cpu10": None, "gpu10": 88.0, "ssd10": None}) == (True, True)
     assert mod.forecast_alert_levels({"cpu10": None, "gpu10": None, "ssd10": 65.0}) == (True, False)
     assert mod.forecast_alert_levels({"cpu10": None, "gpu10": None, "ssd10": 75.0}) == (True, True)
+
+
+def test_worker_emits_exactly_one_json_response_per_nonblank_request():
+    """Blank lines are ignored; each valid request produces one response."""
+    def missing_request():
+        return {"history": [{
+            "timestamp": "2026-01-01T00:00:00.000",
+            "cpu_temp": None, "gpu_temp": None, "ssd_temp": None, "ram_load": 42,
+        }]}
+
+    input_text = "\n" + json.dumps(missing_request()) + "\n\n" + json.dumps(missing_request()) + "\n\n"
+    completed = subprocess.run(
+        [sys.executable, str(p)],
+        input=input_text,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    response_lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    assert len(response_lines) == 2, completed.stdout
+    results = [json.loads(line) for line in response_lines]
+    assert all(result["status"] == "SENSOR_UNAVAILABLE" for result in results)
+    assert all(result["maxTemperature"] is None for result in results)
+    assert all(result["prediction"]["cpu5"] is None for result in results)
