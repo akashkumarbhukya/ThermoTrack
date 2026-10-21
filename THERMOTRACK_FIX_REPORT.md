@@ -1,40 +1,33 @@
-# ThermoTrack Source Audit and Correction Report
+# ThermoTrack — Current Source Audit and Verification Report
 
-## Scope
+## Source baseline
 
-This corrected source package preserves the two editions separately:
+This package was audited from the uploaded `ThermoTrack_OneStep_GitHub_Fixed` project ZIP. The two editions remain separate:
 
-- `CBP/Original_Project/` — the original Python collector, HTML dashboard, MATLAB analysis, and launcher/support files.
-- `CBP/ThermoTrack_Single_Application/` — the C# WinForms/WebView2 desktop edition, embedded LibreHardwareMonitor sensor service, numerical-analysis worker, dashboard, tests, and installer/build configuration.
+- `CBP/Original_Project/`: the original Python collector, HTML dashboard, MATLAB analysis, and launcher/support files.
+- `CBP/ThermoTrack_Single_Application/`: the C# WinForms/WebView2 application, integrated LibreHardwareMonitor sensor service, bundled Python numerical worker, dashboard, tests, and installer/build workflow.
 
-The original edition's source was used as the behavioral reference; it was not replaced by the standalone implementation.
+## Corrections in this revision
 
-## Issues addressed
-
-- Expanded and prioritized CPU/GPU/hotspot/SSD sensor alias matching in the standalone C# service to handle more driver naming variants and child hardware.
-- Added sensor-value validation and explicit availability notes. Invalid/missing temperatures are represented as null/unavailable rather than being silently filled with 0°C. Genuine zero load and power values remain valid.
-- Added progressively reduced hardware initialization attempts so a problematic device family does not necessarily prevent all other sensors from working.
-- Used Windows memory APIs for RAM reporting and kept missing RAM values nullable.
-- Added per-user diagnostics under `%LOCALAPPDATA%\ThermoTrack\Logs\thermotrack.log`; temperature history/workload telemetry is not written to that log.
-- Put WebView2 profile data in `%LOCALAPPDATA%\ThermoTrack\WebView2`, with a writable temporary-profile fallback, instead of storing mutable data inside the installation folder.
-- Kept standard-user application execution (`asInvoker`) and per-user installation under `%LOCALAPPDATA%\Programs\ThermoTrack`.
-- Made the live sensor interface continue if the analysis worker fails, with forecasts and other analysis fields explicitly unavailable instead of crashing the entire UI.
-- Changed the analysis worker to reject invalid/currently missing sensor values, withhold predictions and confidence scores when the data history is insufficient or flat, and avoid plotting missing readings as zero.
-- Aligned the prototype thermal limits with the original MATLAB source: CPU 75/85/95°C, GPU 70/80/88°C, GPU hotspot 90/100/105°C, SSD 55/65/75°C for watch/warning/critical. Fast temperature rise can independently raise a warning.
-- Corrected threshold-crossing time units to seconds, which the dashboard converts to minutes.
-- Required a larger complete and varying history for the ODE forecast, avoided imputation of missing sensor columns in PCA, and required a minimum history for curve-fit RMSE.
-- Improved the Windows build script to check native-command exit codes, run tests, smoke-test the packaged analysis worker against missing data, and fail rather than uploading an absent or implausibly small installer.
-- Updated the GitHub Actions action versions and documentation for both editions.
+- The analysis worker now ignores blank or whitespace-only lines in its newline-delimited JSON input protocol. Blank transport lines no longer produce a spurious `ERROR` JSON response. Invalid non-empty requests still return a structured error response.
+- The Windows build's frozen-worker smoke test deliberately sends a blank line before a valid request, reads stdout and stderr completely and asynchronously, validates that there is exactly one non-empty JSON response, and checks the no-fabricated-values contract. The test still fails on a real error, invalid response, missing fields, or fabricated values.
+- Forecast-driven `WATCH` thresholds now match the original MATLAB source: CPU 85°C, GPU 80°C, SSD 65°C. Forecasted critical bands remain CPU 95°C, GPU 88°C, and SSD 75°C; forecasts do not directly set `CRITICAL`.
+- Exact-name sensor matches now pass through the same candidate-exclusion rules as fuzzy/fallback matches, reducing the risk of selecting a GPU hotspot/junction sensor as the base GPU temperature.
+- Added regression tests for blank protocol lines and forecast alert bands.
+- Added `APPLY_THERMOTRACK_FIXES.ps1` so the user can copy the cleaned project into an existing local checkout and push the changes without overwriting `.git`. It makes a backup branch and stashes pre-existing uncommitted changes before aligning local `main` to GitHub `origin/main`; it does not force-push.
+- Removed `.git` metadata, Python bytecode, test caches, and transient build caches from the distributed ZIP.
 
 ## Checks run in this environment
 
-- Python syntax compilation: passed.
-- Python test suite: **11 passed**.
-- Dashboard JavaScript syntax check with Node.js: passed.
-- Analysis worker JSON-lines smoke test with unavailable CPU/GPU/SSD temperatures: passed; it returned `SENSOR_UNAVAILABLE`, `maxTemperature: null`, null CPU prediction, and null CPU confidence.
+- Python tests: **14 passed** (`python -m pytest tests -q`).
+- Python syntax compilation: passed for the worker and tests.
+- JSON-lines protocol test: passed with blank lines before/after the request; exactly one `SENSOR_UNAVAILABLE` response is emitted, `maxTemperature` is `null`, and `prediction.cpu5` is `null`.
+- Dashboard embedded JavaScript syntax: passed using Node.js after extracting the inline script.
+- The smoke test assertions preserve the rule that missing readings are not replaced with zero temperatures or fake forecasts.
+- Package content/integrity is checked when the ZIP is produced.
 
-## Not verified here
+## Not verified in this environment
 
-This environment did not have the .NET SDK, PowerShell, or Inno Setup available, so a Windows C# publish and installer compilation were **not run here**. This environment also cannot access the user's physical CPU/GPU/SSD sensors. The source package therefore does not claim that a Windows installer has been compiled or that the user's sensor behavior is fixed on hardware.
+The environment has no .NET SDK, PowerShell runtime, or Inno Setup compiler, so this revision has **not** been compiled into a Windows installer here. The frozen Windows worker smoke test has not run here, either. Physical CPU/GPU/SSD measurements cannot be exercised in this Linux/container environment. These checks must be completed by the GitHub Actions Windows workflow and then by running the installed app on the target Windows computer.
 
-After pushing these changes, verify the GitHub Actions run ends with a green check and downloads the `ThermoTrack-Windows-Installer-x64` artifact. Then install and test on the target Windows computer, comparing its live values with the original working edition. Some low-level sensors remain hardware-, firmware-, driver-, and permission-dependent.
+A green GitHub Actions run will verify the Windows compilation/package steps and CI smoke test, but it will not by itself prove that every hardware sensor works on the user's device. Compare the installed app's live readings with the working original program and run `CBP/ThermoTrack_Single_Application/tests/verify_installed_hardware.ps1` on the target PC. Some low-level readings remain hardware/firmware/driver/permission-dependent.

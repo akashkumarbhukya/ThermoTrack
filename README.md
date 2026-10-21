@@ -12,6 +12,12 @@ Real-time CPU, GPU, SSD, and RAM monitoring with trend analysis, thermal alerts,
 
 The standalone edition is configured for standard-user execution and per-user installation. Some low-level sensors may be unavailable under standard-user permissions or on particular hardware/firmware/driver combinations. Missing or invalid readings must be reported as unavailable, not fabricated.
 
+## Apply the corrected source to an existing local Git checkout
+
+Extract this source package to a separate folder (for example, Downloads), then double-click `APPLY_THERMOTRACK_FIXES.cmd` in the extracted folder (or run `APPLY_THERMOTRACK_FIXES.ps1` from PowerShell). The helper preserves the target checkout's `.git` metadata, makes a backup branch and stashes existing uncommitted changes before aligning local `main` to GitHub `origin/main`, copies the source files, and pushes a new commit to the expected GitHub remote. It does not force-push; the previous local commit remains on the backup branch. If the helper reports an error, stop and inspect the message instead of manually deleting `.git`.
+
+The bundled-analysis smoke test sends a blank line before a valid JSON request to check that the worker ignores blank protocol lines and emits exactly one JSON response for the real request. The smoke test continues to fail the build on worker errors, invalid JSON, missing sensor values being fabricated, or invalid predictions.
+
 ## Build and download the Windows application
 
 For a local build on Windows 10/11 x64, install .NET 8 SDK, Python 3.11 x64, and Inno Setup 6 on the build machine, then run PowerShell from the repository root:

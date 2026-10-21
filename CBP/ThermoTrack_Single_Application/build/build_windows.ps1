@@ -37,6 +37,8 @@ try {
     if (-not (Test-Path $WorkerExe)) { throw "Analysis worker output is missing: $WorkerExe" }
 
     # Smoke-test the frozen worker itself, not just the unfrozen Python module.
+    # Send a blank line before the valid JSON request to test the Windows stdin
+    # framing edge case that previously made the worker emit an ERROR response.
     $start = New-Object System.Diagnostics.ProcessStartInfo
     $start.FileName = $WorkerExe
     $start.WorkingDirectory = $DistDir
@@ -48,28 +50,37 @@ try {
     $workerProcess = [System.Diagnostics.Process]::Start($start)
     if ($null -eq $workerProcess) { throw 'Could not start the bundled analysis worker smoke test.' }
     try {
+        # Read both pipes asynchronously before writing/waiting so neither pipe can fill and deadlock.
+        $stdoutTask = $workerProcess.StandardOutput.ReadToEndAsync()
+        $stderrTask = $workerProcess.StandardError.ReadToEndAsync()
         $request = '{"history":[{"timestamp":"2026-01-01T00:00:00.000","cpu_temp":null,"gpu_temp":null,"ssd_temp":null,"ram_load":42}]}'
+        $workerProcess.StandardInput.WriteLine('')
         $workerProcess.StandardInput.WriteLine($request)
+        $workerProcess.StandardInput.Flush()
         $workerProcess.StandardInput.Close()
-        $readLine = $workerProcess.StandardOutput.ReadLineAsync()
         if (-not $workerProcess.WaitForExit(30000)) {
             $workerProcess.Kill($true)
             throw 'The bundled analysis worker did not respond within 30 seconds.'
         }
-        $workerResponse = $readLine.GetAwaiter().GetResult()
-        if ($workerProcess.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($workerResponse)) {
-            $workerError = $workerProcess.StandardError.ReadToEnd()
-            throw "Bundled analysis worker smoke test failed. Exit code: $($workerProcess.ExitCode). $workerError"
+        $workerProcess.WaitForExit()
+        $stdoutText = $stdoutTask.GetAwaiter().GetResult()
+        $workerError = $stderrTask.GetAwaiter().GetResult()
+        $responseLines = @($stdoutText -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if ($workerProcess.ExitCode -ne 0) {
+            throw "Bundled analysis worker exited with code $($workerProcess.ExitCode). stdout='$stdoutText'; stderr='$workerError'"
         }
+        if ($responseLines.Count -ne 1) {
+            throw "Bundled analysis worker must emit exactly one non-empty JSON response for one request. Responses=$($responseLines.Count); stdout='$stdoutText'; stderr='$workerError'"
+        }
+        $workerResponse = [string]$responseLines[0]
         try {
-            $workerJson = $workerResponse | ConvertFrom-Json
+            $workerJson = $workerResponse | ConvertFrom-Json -ErrorAction Stop
         }
         catch {
-            throw "Bundled analysis worker returned invalid JSON. Raw response: $workerResponse. Parse error: $($_.Exception.Message)"
+            throw "Bundled analysis worker returned invalid JSON. Raw response: $workerResponse. stderr='$workerError'. Parse error: $($_.Exception.Message)"
         }
 
-        # Validate both the semantic result and that the important fields exist.
-        # Include returned values in the failure message so future CI failures are diagnosable.
+        # Validate both semantic correctness and the presence of required fields.
         $statusValue = [string]$workerJson.status
         $maxTemperatureProperty = $workerJson.PSObject.Properties['maxTemperature']
         $predictionProperty = $workerJson.PSObject.Properties['prediction']
@@ -77,16 +88,17 @@ try {
         if ($null -ne $predictionProperty -and $null -ne $predictionProperty.Value) {
             $predictionCpu5Property = $predictionProperty.Value.PSObject.Properties['cpu5']
         }
-
         $maxTemperatureIsNull = ($null -ne $maxTemperatureProperty -and $null -eq $maxTemperatureProperty.Value)
         $predictionCpu5IsNull = ($null -ne $predictionCpu5Property -and $null -eq $predictionCpu5Property.Value)
         $maxTemperatureText = if ($null -eq $maxTemperatureProperty) { '<missing>' } else { ConvertTo-Json -InputObject $maxTemperatureProperty.Value -Compress }
         $predictionCpu5Text = if ($null -eq $predictionCpu5Property) { '<missing>' } else { ConvertTo-Json -InputObject $predictionCpu5Property.Value -Compress }
-
+        if ($statusValue -eq 'ERROR') {
+            throw "Bundled analysis worker returned ERROR: $($workerJson.error). Raw response: $workerResponse; stderr='$workerError'"
+        }
         if ($statusValue -ne 'SENSOR_UNAVAILABLE' -or -not $maxTemperatureIsNull -or -not $predictionCpu5IsNull) {
             throw "Bundled analysis worker failed the no-fabricated-values smoke test. status='$statusValue'; maxTemperature=$maxTemperatureText; prediction.cpu5=$predictionCpu5Text; raw response=$workerResponse"
         }
-        Write-Host 'Bundled analysis worker no-fabricated-values smoke test passed.' -ForegroundColor Green
+        Write-Host 'Bundled analysis worker blank-line and no-fabricated-values smoke tests passed.' -ForegroundColor Green
     }
     finally {
         $workerProcess.Dispose()

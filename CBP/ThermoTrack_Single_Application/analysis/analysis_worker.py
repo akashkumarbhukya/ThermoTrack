@@ -365,6 +365,20 @@ def _fmt_rate(v: float | None) -> str:
     return f"{v:.3f} °C/s" if v is not None else "unavailable"
 
 
+def forecast_alert_levels(prediction: dict[str, Any]) -> tuple[bool, bool]:
+    """Return (watch, warning) flags using the original MATLAB's 10-minute bands."""
+    cpu = temperature(prediction.get("cpu10"))
+    gpu = temperature(prediction.get("gpu10"))
+    ssd = temperature(prediction.get("ssd10"))
+    watch = ((cpu is not None and cpu >= TEMP_LIMITS["cpu"]["warning"]) or
+             (gpu is not None and gpu >= TEMP_LIMITS["gpu"]["warning"]) or
+             (ssd is not None and ssd >= TEMP_LIMITS["ssd"]["warning"]))
+    warning = ((cpu is not None and cpu >= TEMP_LIMITS["cpu"]["critical"]) or
+               (gpu is not None and gpu >= TEMP_LIMITS["gpu"]["critical"]) or
+               (ssd is not None and ssd >= TEMP_LIMITS["ssd"]["critical"]))
+    return watch, warning
+
+
 def analyze(history: list[dict[str, Any]]) -> dict[str, Any]:
     # Bound history defensively even if a caller sends more than the collector's 300 samples.
     history = list(history or [])[-300:]
@@ -457,14 +471,11 @@ def analyze(history: list[dict[str, Any]]) -> dict[str, Any]:
         elif hotspot >= HOTSPOT_WATCH:
             flags.append(f"GPU hotspot elevated at {_fmt_temp(hotspot)}"); watch = True
 
-    # As in the original MATLAB analysis, valid 10-minute forecasts can move
-    # NORMAL to WATCH or WARNING, but a forecast alone never sets CRITICAL.
-    forecast_watch = ((out["prediction"].get("cpu10") is not None and out["prediction"]["cpu10"] >= 75) or
-                      (out["prediction"].get("gpu10") is not None and out["prediction"]["gpu10"] >= 70) or
-                      (out["prediction"].get("ssd10") is not None and out["prediction"]["ssd10"] >= 55))
-    forecast_warning = ((out["prediction"].get("cpu10") is not None and out["prediction"]["cpu10"] >= 95) or
-                        (out["prediction"].get("gpu10") is not None and out["prediction"]["gpu10"] >= 88) or
-                        (out["prediction"].get("ssd10") is not None and out["prediction"]["ssd10"] >= 75))
+    # Match the original MATLAB prediction policy: reaching a warning-level
+    # temperature within 10 minutes may raise NORMAL to WATCH. A predicted
+    # critical-level temperature raises NORMAL/WATCH to WARNING, never directly
+    # to CRITICAL because predictions are advisory rather than measurements.
+    forecast_watch, forecast_warning = forecast_alert_levels(out["prediction"])
 
     if critical:
         status = "CRITICAL"
@@ -552,10 +563,26 @@ def analyze(history: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Process newline-delimited JSON requests, ignoring blank transport lines.
+
+    Some Windows process/pipe combinations can deliver an empty line before the
+    first request or between requests. Blank lines are framing noise, not JSON
+    requests, and must not turn a healthy worker response into an ERROR result.
+    Exactly one JSON response is emitted for each non-empty request line.
+    """
     for line in sys.stdin:
+        if not line.strip():
+            continue
         try:
             request = json.loads(line)
-            result = analyze(request.get("history", []))
+            if not isinstance(request, dict):
+                raise ValueError("Each analysis request must be a JSON object.")
+            history = request.get("history", [])
+            if history is None:
+                history = []
+            if not isinstance(history, list):
+                raise ValueError("The analysis request 'history' property must be a JSON array.")
+            result = analyze(history)
             print(json.dumps(result, separators=(",", ":"), allow_nan=False), flush=True)
         except Exception as exc:  # keep the worker protocol alive, but never print non-JSON to stdout
             print(json.dumps({"status": "ERROR", "error": str(exc)}, separators=(",", ":"), allow_nan=False), flush=True)

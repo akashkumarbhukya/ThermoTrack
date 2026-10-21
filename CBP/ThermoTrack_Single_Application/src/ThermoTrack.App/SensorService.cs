@@ -97,6 +97,10 @@ internal sealed class SensorService : IDisposable
                 {
                     foreach (var item in candidates.Where(x => string.Equals(x.Sensor.Name, alias, StringComparison.OrdinalIgnoreCase)))
                     {
+                        // Apply the same exclusion rules to exact-name matches as
+                        // to fuzzy/fallback matches so hotspot/junction values do
+                        // not accidentally become the base GPU temperature.
+                        if (IsExcludedCandidate(key, item.Sensor.Name)) continue;
                         var value = ValidateMetric(key, item.Sensor.Value!.Value);
                         if (value.HasValue) { selected[key] = $"{item.Hardware.Name}: {item.Sensor.Name}"; return value; }
                     }

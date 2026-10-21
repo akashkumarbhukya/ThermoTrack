@@ -1,4 +1,7 @@
 import importlib.util
+import json
+import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -132,3 +135,46 @@ def test_no_active_process_is_falsely_selected_from_zero_cpu_rows():
     history[0]["top_processes"] = [{"name": "ThermoTrack", "cpu": 0.0}]
     out = mod.analyze(history)
     assert out["topProcess"] == "No CPU-heavy process identified"
+
+
+def test_worker_ignores_blank_protocol_lines():
+    """A blank stdin line must not become an ERROR response before valid JSON."""
+    request = {"history": [{
+        "timestamp": "2026-01-01T00:00:00.000",
+        "cpu_temp": None,
+        "gpu_temp": None,
+        "ssd_temp": None,
+        "ram_load": 42,
+    }]}
+    completed = subprocess.run(
+        [sys.executable, str(p)],
+        input="\n" + json.dumps(request) + "\n\n",
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    response_lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    assert len(response_lines) == 1, completed.stdout
+    response = json.loads(response_lines[0])
+    assert response["status"] == "SENSOR_UNAVAILABLE"
+    assert response["maxTemperature"] is None
+    assert response["prediction"]["cpu5"] is None
+
+
+def test_forecast_alert_limits_match_original_matlab_policy():
+    # Guard the configured prediction bands used by the MATLAB implementation.
+    assert mod.TEMP_LIMITS["cpu"] == {"field": "cpu_temp", "watch": 75.0, "warning": 85.0, "critical": 95.0}
+    assert mod.TEMP_LIMITS["gpu"] == {"field": "gpu_temp", "watch": 70.0, "warning": 80.0, "critical": 88.0}
+    assert mod.TEMP_LIMITS["ssd"] == {"field": "ssd_temp", "watch": 55.0, "warning": 65.0, "critical": 75.0}
+
+
+def test_forecast_alert_bands_match_original_matlab_policy():
+    assert mod.forecast_alert_levels({"cpu10": 84.9, "gpu10": None, "ssd10": None}) == (False, False)
+    assert mod.forecast_alert_levels({"cpu10": 85.0, "gpu10": None, "ssd10": None}) == (True, False)
+    assert mod.forecast_alert_levels({"cpu10": 95.0, "gpu10": None, "ssd10": None}) == (True, True)
+    assert mod.forecast_alert_levels({"cpu10": None, "gpu10": 80.0, "ssd10": None}) == (True, False)
+    assert mod.forecast_alert_levels({"cpu10": None, "gpu10": 88.0, "ssd10": None}) == (True, True)
+    assert mod.forecast_alert_levels({"cpu10": None, "gpu10": None, "ssd10": 65.0}) == (True, False)
+    assert mod.forecast_alert_levels({"cpu10": None, "gpu10": None, "ssd10": 75.0}) == (True, True)
