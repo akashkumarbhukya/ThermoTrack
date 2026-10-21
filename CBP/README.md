@@ -2,7 +2,7 @@
 
 This folder contains two separate ThermoTrack editions:
 
-- `Original_Project/` — original educational Python + HTML + MATLAB version.
-- `ThermoTrack_Single_Application/` — native Windows desktop application source/build project.
+- `Original_Project/` — the original educational Python + HTML + MATLAB implementation and its existing LibreHardwareMonitor JSON endpoint dependency.
+- `ThermoTrack_Single_Application/` — the standalone Windows desktop application source, embedded sensor library, analysis worker, dashboard, tests, installer, and build scripts.
 
-The repository-root README describes how to build the Windows installer. The GitHub Actions workflow must remain at the repository root under `.github/workflows/`.
+The repository-root README describes both editions. The Windows GitHub Actions workflow must remain at the repository root under `.github/workflows/`.

@@ -8,7 +8,8 @@
 :root{--bg:#0b1120;--panel:#111827;--panel2:#172033;--text:#eef2ff;--muted:#94a3b8;--border:#263246;--normal:#22c55e;--watch:#f59e0b;--warning:#f97316;--critical:#ef4444;--accent:#60a5fa}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#07101f,#111827);font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--text)}
 .app{max-width:1400px;margin:auto;padding:22px}.header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px}.title{font-size:28px;font-weight:800}.subtitle{color:var(--muted);margin-top:4px}.status{padding:10px 16px;border-radius:999px;font-weight:800;letter-spacing:.08em;background:#19351f;color:var(--normal)}
-.status.WATCH{background:#3a2d0b;color:var(--watch)}.status.WARNING{background:#3b2110;color:var(--warning)}.status.CRITICAL,.status.EMERGENCY{background:#43131a;color:var(--critical);animation:pulse 1.1s infinite}
+.status.WATCH{background:#3a2d0b;color:var(--watch)}.status.WARNING{background:#3b2110;color:var(--warning)}.status.CRITICAL,.status.EMERGENCY{background:#43131a;color:var(--critical);animation:pulse 1.1s infinite}.status.SENSOR_UNAVAILABLE,.status.DISCONNECTED{background:#273449;color:var(--muted)}
+.sensor-note{margin:0 0 14px;padding:10px 12px;background:#0b1324;border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:13px;line-height:1.5}.sensor-note[data-level="warning"]{border-color:#8b6728;color:#f5c976}.sensor-note[data-level="error"]{border-color:#8b3434;color:#fecaca}
 .big.alert-WATCH{color:var(--watch)}.big.alert-WARNING{color:var(--warning)}.big.alert-CRITICAL,.big.alert-EMERGENCY{color:var(--critical);animation:pulse 1.1s infinite}
 @keyframes pulse{50%{opacity:.55}}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}.card{background:rgba(17,24,39,.92);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
@@ -25,6 +26,8 @@ canvas{width:100%;height:250px;background:#0b1324;border:1px solid var(--border)
     <div><div class="title">Thermal Intelligence</div><div class="subtitle">Live thermal monitoring • numerical prediction • cause analysis</div></div>
     <div id="status" class="status">CONNECTING</div>
   </div>
+
+  <div id="sensorNote" class="sensor-note" role="status" aria-live="polite">Checking hardware sensor availability...</div>
 
   <div class="grid">
     <section class="card component">
@@ -155,9 +158,9 @@ canvas{width:100%;height:250px;background:#0b1324;border:1px solid var(--border)
 
 <script>
 const $ = id => document.getElementById(id);
-const fmt = (v, suffix="") => (v === null || v === undefined || Number.isNaN(Number(v))) ? "--" : Number(v).toFixed(1) + suffix;
-const fmt3 = v => (v === null || v === undefined || Number.isNaN(Number(v))) ? "--" : Number(v).toFixed(3) + " °C/s";
-const mins = v => (v === null || v === undefined || Number.isNaN(Number(v))) ? "Not predicted" : (Number(v)/60).toFixed(1) + " min";
+const fmt = (v, suffix="") => (v === null || v === undefined || !Number.isFinite(Number(v))) ? "--" : Number(v).toFixed(1) + suffix;
+const fmt3 = v => (v === null || v === undefined || !Number.isFinite(Number(v))) ? "--" : Number(v).toFixed(3) + " °C/s";
+const mins = v => (v === null || v === undefined || !Number.isFinite(Number(v))) ? "Not predicted" : (Number(v)/60).toFixed(1) + " min"; // API threshold times are seconds, matching MATLAB.
 
 function colorStatus(s){
   const el=$("status"); el.textContent=s||"UNKNOWN"; el.className="status "+(s||"");
@@ -195,6 +198,13 @@ async function update(){
     const res=await fetch("/dashboard?t="+Date.now(),{cache:"no-store"});
     const d=await res.json(); const s=d.sensor||{}, a=d.analysis||{};
     colorStatus(a.status); colorAnomaly(a.status);
+    const sensorMessages=[];
+    if(s.sensor_error) sensorMessages.push("Sensor service error: "+s.sensor_error);
+    if(s.sensor_note) sensorMessages.push(s.sensor_note);
+    if(a.analysis_error) sensorMessages.push("Analysis unavailable: "+a.analysis_error);
+    const note=$("sensorNote");
+    note.textContent=sensorMessages.join(" ")||"Waiting for the first hardware sample...";
+    note.dataset.level=(s.sensor_error||a.analysis_error)?"error":(/unavailable|unsupported|failed/i.test(note.textContent)?"warning":"normal");
     $("cpuTemp").textContent=fmt(s.cpu_temp," °C");$("cpuLoad").textContent=fmt(s.cpu_load," %");$("cpuPower").textContent=fmt(s.cpu_power," W");$("cpuRate").textContent=fmt3(a.cpuHeatingRate);
     $("gpuTemp").textContent=fmt(s.gpu_temp," °C");$("gpuHotspot").textContent=fmt(s.gpu_hotspot," °C");$("gpuLoad").textContent=fmt(s.gpu_load," %");$("gpuPower").textContent=fmt(s.gpu_power," W");$("gpuRate").textContent=fmt3(a.gpuHeatingRate);
     $("ssdTemp").textContent=fmt(s.ssd_temp," °C");$("ssdActivity").textContent=fmt(s.ssd_activity," %");$("ssdRate").textContent=fmt3(a.ssdHeatingRate);

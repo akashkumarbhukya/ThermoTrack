@@ -1,5 +1,5 @@
 #define MyAppName "ThermoTrack"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Akash kumar"
 #define MyAppExeName "ThermoTrack.exe"
 
