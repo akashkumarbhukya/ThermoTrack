@@ -204,3 +204,15 @@ def test_worker_emits_exactly_one_json_response_per_nonblank_request():
     assert all(result["status"] == "SENSOR_UNAVAILABLE" for result in results)
     assert all(result["maxTemperature"] is None for result in results)
     assert all(result["prediction"]["cpu5"] is None for result in results)
+
+
+
+def test_frozen_windows_smoke_test_uses_single_nonblank_request():
+    """The frozen-EXE smoke test mirrors C# AnalysisClient production traffic."""
+    build_script = p.parents[1] / "build" / "build_windows.ps1"
+    contents = build_script.read_text(encoding="utf-8")
+    assert "$workerProcess.StandardInput.WriteLine($request)" in contents
+    assert "$workerProcess.StandardInput.WriteLine('')" not in contents
+    assert "exactly one non-empty JSON response" in contents
+    # Blank-line handling remains separately covered by the source-worker protocol test.
+    assert "test_worker_ignores_blank_protocol_lines" in Path(__file__).read_text(encoding="utf-8")

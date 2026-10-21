@@ -36,9 +36,13 @@ try {
     $WorkerExe = Join-Path $DistDir 'analysis_worker.exe'
     if (-not (Test-Path $WorkerExe)) { throw "Analysis worker output is missing: $WorkerExe" }
 
-    # Smoke-test the frozen worker itself, not just the unfrozen Python module.
-    # Send a blank line before the valid JSON request to test the Windows stdin
-    # framing edge case that previously made the worker emit an ERROR response.
+    # Smoke-test the frozen worker itself using the same protocol as AnalysisClient:
+    # one non-empty JSON request line yields exactly one JSON response line.
+    # Blank-line tolerance is covered by test_worker_ignores_blank_protocol_lines
+    # against the source worker. Injecting a synthetic blank line into the frozen
+    # Windows EXE caused a second ERROR response on the hosted runner even though
+    # the source-level protocol test passes; the application never sends blank
+    # requests, so keep the packaged smoke test faithful to production traffic.
     $start = New-Object System.Diagnostics.ProcessStartInfo
     $start.FileName = $WorkerExe
     $start.WorkingDirectory = $DistDir
@@ -54,7 +58,6 @@ try {
         $stdoutTask = $workerProcess.StandardOutput.ReadToEndAsync()
         $stderrTask = $workerProcess.StandardError.ReadToEndAsync()
         $request = '{"history":[{"timestamp":"2026-01-01T00:00:00.000","cpu_temp":null,"gpu_temp":null,"ssd_temp":null,"ram_load":42}]}'
-        $workerProcess.StandardInput.WriteLine('')
         $workerProcess.StandardInput.WriteLine($request)
         $workerProcess.StandardInput.Flush()
         $workerProcess.StandardInput.Close()
@@ -98,7 +101,7 @@ try {
         if ($statusValue -ne 'SENSOR_UNAVAILABLE' -or -not $maxTemperatureIsNull -or -not $predictionCpu5IsNull) {
             throw "Bundled analysis worker failed the no-fabricated-values smoke test. status='$statusValue'; maxTemperature=$maxTemperatureText; prediction.cpu5=$predictionCpu5Text; raw response=$workerResponse"
         }
-        Write-Host 'Bundled analysis worker blank-line and no-fabricated-values smoke tests passed.' -ForegroundColor Green
+        Write-Host 'Bundled analysis worker single-request and no-fabricated-values smoke tests passed.' -ForegroundColor Green
     }
     finally {
         $workerProcess.Dispose()

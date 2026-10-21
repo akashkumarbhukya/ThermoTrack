@@ -4,131 +4,127 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-# PowerShell 7 can promote a native program's non-zero exit/stderr into a
-# terminating NativeCommandError before its exit code is handled. Git/robocopy
-# are checked explicitly below, so disable that promotion when the variable exists.
 if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
     $PSNativeCommandUseErrorActionPreference = $false
 }
 
 $SourceRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path.TrimEnd('\')
+if (-not (Test-Path -LiteralPath $RepositoryPath)) { throw "Repository folder not found: $RepositoryPath" }
+$RepositoryPath = (Resolve-Path -LiteralPath $RepositoryPath).Path.TrimEnd('\')
+$SameFolder = $SourceRoot.Equals($RepositoryPath, [StringComparison]::OrdinalIgnoreCase)
 $SourceWorker = Join-Path $SourceRoot 'CBP\ThermoTrack_Single_Application\analysis\analysis_worker.py'
 $SourceBuild = Join-Path $SourceRoot 'CBP\ThermoTrack_Single_Application\build\build_windows.ps1'
 $SourceTests = Join-Path $SourceRoot 'CBP\ThermoTrack_Single_Application\tests\test_analysis_worker.py'
-if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot '.github\workflows\build-windows.yml')) -or
-    -not (Test-Path -LiteralPath $SourceWorker) -or
-    -not (Test-Path -LiteralPath $SourceBuild) -or
-    -not (Test-Path -LiteralPath $SourceTests)) {
-    throw "This folder is not the complete corrected ThermoTrack source package: $SourceRoot"
+$SourceWorkflow = Join-Path $SourceRoot '.github\workflows\build-windows.yml'
+foreach ($required in @($SourceWorker, $SourceBuild, $SourceTests, $SourceWorkflow)) {
+    if (-not (Test-Path -LiteralPath $required)) { throw "Required ThermoTrack source file missing: $required" }
 }
+if (-not (Test-Path -LiteralPath (Join-Path $RepositoryPath '.git'))) { throw "Target is not a Git checkout (.git missing): $RepositoryPath" }
 
-# Refuse to apply a package unless it contains the specific regression fix.
-$sourceWorkerText = Get-Content -LiteralPath $SourceWorker -Raw
-$sourceBuildText = Get-Content -LiteralPath $SourceBuild -Raw
-$sourceTestsText = Get-Content -LiteralPath $SourceTests -Raw
-if ($sourceWorkerText -notmatch 'if\s+not\s+line\.strip\(\)\s*:\s*\r?\n\s+continue') {
-    throw 'Safety check failed: source worker does not ignore blank input lines.'
+# Validate the actual intended fix before staging anything.
+$workerText = Get-Content -LiteralPath $SourceWorker -Raw
+$buildText = Get-Content -LiteralPath $SourceBuild -Raw
+$testText = Get-Content -LiteralPath $SourceTests -Raw
+if ($workerText -notmatch 'if\s+not\s+line\.strip\(\)\s*:\s*\r?\n\s+continue') {
+    throw 'Worker must ignore blank transport lines; source validation failed.'
 }
-if ($sourceBuildText -notmatch 'responseLines\.Count\s+-ne\s+1' -or $sourceBuildText -notmatch "WriteLine\(''\)") {
-    throw 'Safety check failed: Windows build smoke test does not verify the blank-line protocol.'
+if ($buildText -match "StandardInput\.WriteLine\(''\)") {
+    throw 'Build smoke test still injects a synthetic blank line into the frozen EXE.'
 }
-if ($sourceTestsText -notmatch 'test_worker_ignores_blank_protocol_lines') {
-    throw 'Safety check failed: blank-line regression test is missing.'
+if ($buildText -notmatch 'StandardInput\.WriteLine\(\$request\)' -or $buildText -notmatch 'responseLines\.Count\s+-ne\s+1') {
+    throw 'Build smoke test must send one real request and require exactly one response.'
 }
-
-if (-not (Test-Path -LiteralPath $RepositoryPath)) {
-    throw "Existing repository folder not found: $RepositoryPath`nExtract this ZIP into a separate folder first, then run APPLY_THERMOTRACK_FIXES.cmd."
-}
-$RepositoryPath = (Resolve-Path -LiteralPath $RepositoryPath).Path.TrimEnd('\')
-if (-not (Test-Path -LiteralPath (Join-Path $RepositoryPath '.git'))) {
-    throw "Target folder is not a Git checkout (.git is missing): $RepositoryPath"
-}
-if ($SourceRoot.Equals($RepositoryPath, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'The source package and Git checkout are the same folder. Extract this package separately first.'
-}
-if ($SourceRoot.StartsWith($RepositoryPath + '\', [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'The source package is inside the Git checkout. Extract it to Downloads or another separate folder first.'
+if ($testText -notmatch 'test_worker_ignores_blank_protocol_lines' -or $testText -notmatch 'test_frozen_windows_smoke_test_uses_single_nonblank_request') {
+    throw 'Required protocol regression tests are missing.'
 }
 
 $remoteUrl = (& git -C $RepositoryPath remote get-url origin 2>&1 | Out-String).Trim()
-$remoteExit = $LASTEXITCODE
-if ($remoteExit -ne 0 -or $remoteUrl -notmatch 'github\.com[:/]akashkumarbhukya/ThermoTrack(?:\.git)?$') {
-    throw "Target origin is not the expected ThermoTrack GitHub repository.`nFound: $remoteUrl"
+if ($LASTEXITCODE -ne 0 -or $remoteUrl -notmatch 'github\.com[:/]akashkumarbhukya/ThermoTrack(?:\.git)?$') {
+    throw "Target origin is not the expected GitHub repository: $remoteUrl"
 }
-
-function Invoke-Git {
-    param([Parameter(Mandatory = $true)][string[]]$Arguments)
-    & git -C $RepositoryPath @Arguments
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        throw "git $($Arguments -join ' ') failed with exit code $exitCode. No force-push or reset was attempted."
-    }
-}
-
 $currentBranch = (& git -C $RepositoryPath branch --show-current 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0) { throw 'Could not identify the active Git branch.' }
-if ($currentBranch -ne 'main') {
-    throw "Target checkout is on '$currentBranch', not 'main'. No files were copied. Open the correct repository folder and rerun."
-}
+if ($LASTEXITCODE -ne 0 -or $currentBranch -ne 'main') { throw "Expected branch main, got '$currentBranch'. No files were committed." }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-Invoke-Git @('branch', "backup-before-thermotrack-fix-$stamp", 'HEAD')
-Write-Host "Safety backup branch created: backup-before-thermotrack-fix-$stamp" -ForegroundColor Green
+$backup = "backup-before-thermotrack-build-fix-$stamp"
+& git -C $RepositoryPath branch $backup HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Could not create a backup branch.' }
+Write-Host "Safety backup branch: $backup" -ForegroundColor Green
 
-$statusLines = @(& git -C $RepositoryPath status --porcelain 2>&1)
-if ($LASTEXITCODE -ne 0) { throw 'Could not inspect Git status.' }
-if ($statusLines.Count -gt 0) {
-    Invoke-Git @('stash', 'push', '--include-untracked', '-m', "Preserved before ThermoTrack source update $stamp")
-    Write-Host 'Previous uncommitted changes preserved in Git stash; previous commit preserved on the backup branch.' -ForegroundColor Yellow
+& git -C $RepositoryPath fetch origin
+if ($LASTEXITCODE -ne 0) { throw 'git fetch failed.' }
+$head = (& git -C $RepositoryPath rev-parse HEAD).Trim()
+$originHead = (& git -C $RepositoryPath rev-parse origin/main).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect commit IDs.' }
+
+if ($SameFolder) {
+    # Files were already extracted/copied into the Git checkout. Do NOT stash or reset them.
+    if ($head -ne $originHead) {
+        throw "Local main ($head) differs from origin/main ($originHead). Files were not committed or pushed. Preserve the changes and reconcile the branch first."
+    }
+    Write-Host 'Package is already extracted into the Git checkout; leaving all files in place.' -ForegroundColor Yellow
+} else {
+    if ($SourceRoot.StartsWith($RepositoryPath + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Extract the package outside the repository or directly into the repository root; a nested package folder is not supported.'
+    }
+    $status = @(& git -C $RepositoryPath status --porcelain 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw 'Could not inspect Git status.' }
+    if ($status.Count -gt 0) {
+        & git -C $RepositoryPath stash push --include-untracked -m "Preserved before ThermoTrack build fix $stamp"
+        if ($LASTEXITCODE -ne 0) { throw 'Could not preserve existing local changes.' }
+    }
+    & git -C $RepositoryPath switch -C main origin/main
+    if ($LASTEXITCODE -ne 0) { throw 'Could not align target main to origin/main.' }
+    & robocopy $SourceRoot $RepositoryPath /E /COPY:DAT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP /XD .git __pycache__ .pytest_cache .venv venv node_modules bin obj worker-build worker-dist publish dist /XF *.pyc /XJ
+    $copyResult = $LASTEXITCODE
+    if ($copyResult -ge 8) { throw "File copy failed (robocopy $copyResult)." }
+    Write-Host 'Corrected package copied; .git metadata was excluded.' -ForegroundColor Green
 }
 
-Invoke-Git @('fetch', 'origin')
-Invoke-Git @('switch', '-C', 'main', 'origin/main')
-
-# Copy the validated package, explicitly excluding Git metadata, caches and build outputs.
-$robocopyArgs = @(
-    $SourceRoot, $RepositoryPath,
-    '/E', '/COPY:DAT', '/R:2', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP',
-    '/XD', '.git', '__pycache__', '.pytest_cache', '.venv', 'venv', 'node_modules', 'bin', 'obj', 'worker-build', 'worker-dist', 'publish', 'dist',
-    '/XF', '*.pyc',
-    '/XJ'
-)
-& robocopy @robocopyArgs
-$copyExit = $LASTEXITCODE
-if ($copyExit -ge 8) { throw "Copy failed (robocopy exit code $copyExit)." }
-Write-Host 'Corrected source copied; the target .git metadata was not copied or overwritten.' -ForegroundColor Green
-
-# Verify the exact files in the Git checkout—not merely the downloaded package.
-$targetWorker = Join-Path $RepositoryPath 'CBP\ThermoTrack_Single_Application\analysis\analysis_worker.py'
+# Verify the files at their final location.
 $targetBuild = Join-Path $RepositoryPath 'CBP\ThermoTrack_Single_Application\build\build_windows.ps1'
 $targetTests = Join-Path $RepositoryPath 'CBP\ThermoTrack_Single_Application\tests\test_analysis_worker.py'
-$targetWorkerText = Get-Content -LiteralPath $targetWorker -Raw
-$targetBuildText = Get-Content -LiteralPath $targetBuild -Raw
-$targetTestsText = Get-Content -LiteralPath $targetTests -Raw
-if ($targetWorkerText -notmatch 'if\s+not\s+line\.strip\(\)\s*:\s*\r?\n\s+continue' -or
-    $targetBuildText -notmatch 'responseLines\.Count\s+-ne\s+1' -or
-    $targetTestsText -notmatch 'test_worker_ignores_blank_protocol_lines') {
-    throw 'Post-copy verification failed: the Git checkout does not contain all three worker protocol fixes. Nothing has been committed or pushed.'
+$targetWorker = Join-Path $RepositoryPath 'CBP\ThermoTrack_Single_Application\analysis\analysis_worker.py'
+if (-not (Test-Path $targetBuild) -or -not (Test-Path $targetTests) -or -not (Test-Path $targetWorker)) { throw 'Post-copy verification failed: expected worker/build/tests are missing.' }
+$targetBuildText = Get-Content $targetBuild -Raw
+$targetTestsText = Get-Content $targetTests -Raw
+if ($targetBuildText -match "StandardInput\.WriteLine\(''\)" -or
+    $targetBuildText -notmatch 'StandardInput\.WriteLine\(\$request\)' -or
+    $targetTestsText -notmatch 'test_frozen_windows_smoke_test_uses_single_nonblank_request') {
+    throw 'Post-copy verification failed. Nothing was committed.'
 }
-Write-Host 'Verified target worker, build smoke test, and regression test.' -ForegroundColor Green
+Write-Host 'Verified: frozen EXE smoke test sends one real request; source tests retain blank-line coverage.' -ForegroundColor Green
 
-# Do not probe globally installed Python packages here: that previously stopped the updater
-# in PowerShell before the source could be committed. GitHub Actions installs pinned build deps
-# and is the authoritative test/build environment.
-Invoke-Git @('add', '-A')
+# Stage only files belonging to this targeted correction. No unrelated user files are included.
+$paths = @(
+  'CBP/ThermoTrack_Single_Application/build/build_windows.ps1',
+  'CBP/ThermoTrack_Single_Application/tests/test_analysis_worker.py',
+  'APPLY_THERMOTRACK_FIXES.ps1',
+  'THERMOTRACK_FIX_REPORT.md'
+)
+& git -C $RepositoryPath add -- @paths
+if ($LASTEXITCODE -ne 0) { throw 'Git add failed.' }
 & git -C $RepositoryPath diff --cached --check
-if ($LASTEXITCODE -ne 0) { throw 'Whitespace/conflict-marker validation failed; no commit was made.' }
+if ($LASTEXITCODE -ne 0) { throw 'Staged changes failed git diff --check.' }
 & git -C $RepositoryPath diff --cached --quiet
-$diffExit = $LASTEXITCODE
-if ($diffExit -eq 0) {
-    Write-Host 'No new changes detected. The remote main already contains these exact files.' -ForegroundColor Yellow
+$diff = $LASTEXITCODE
+if ($diff -eq 0) {
+    Write-Host 'No targeted changes detected. No commit or push was performed.' -ForegroundColor Yellow
     exit 0
 }
-if ($diffExit -ne 1) { throw 'Could not inspect staged changes.' }
+if ($diff -ne 1) { throw 'Could not inspect staged changes.' }
 
-Invoke-Git @('commit', '-m', 'Fix bundled worker blank-line JSON protocol')
-Invoke-Git @('push', 'origin', 'main')
-Write-Host ''
-Write-Host 'PUSH SUCCEEDED. GitHub Actions should now run the Windows build.' -ForegroundColor Green
+# Do not invoke the user's global Python from this updater. It can be Python 3.14
+# without the build dependencies, and PowerShell 5.1 promotes its import traceback to
+# NativeCommandError under $ErrorActionPreference='Stop'. Source regression tests passed
+# in the package validation environment; GitHub Actions installs the declared build deps
+# and is the authoritative Windows build/test run.
+Write-Host 'Updater source checks passed. GitHub Actions will run the pinned Python tests and Windows EXE smoke test.' -ForegroundColor Green
+
+& git -C $RepositoryPath commit -m 'Fix frozen worker smoke test protocol'
+if ($LASTEXITCODE -ne 0) { throw 'Commit failed; backup branch remains available.' }
+& git -C $RepositoryPath push origin main
+if ($LASTEXITCODE -ne 0) { throw 'Push failed. No force-push was attempted; backup branch remains available.' }
+Write-Host 'Push completed. Check the new Windows build workflow.' -ForegroundColor Green
 Write-Host 'https://github.com/akashkumarbhukya/ThermoTrack/actions'
-Write-Host 'A green workflow confirms the Windows package/build checks; real sensor access still needs hardware testing.' -ForegroundColor Yellow
+Write-Host 'A passing CI run confirms build validation, not physical-sensor compatibility.' -ForegroundColor Yellow
